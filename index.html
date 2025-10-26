@@ -78,8 +78,8 @@
             </div>
             
             <!-- Estado de error/no encontrado (oculto por defecto) -->
-            <div id="error-message" class="hidden text-center">
-                 <p class="text-2xl text-red-400 font-bold">Producto no encontrado</p>
+            <div id="error-message" class="hidden text-center p-4">
+                 <p class="text-2xl text-red-400 font-bold">Error</p>
                  <p class="text-gray-400 mt-2">El código escaneado no arrojó resultados.</p>
             </div>
         </div>
@@ -106,6 +106,8 @@
             const loader = document.getElementById('loader');
             const productContent = document.getElementById('product-content');
             const errorMessage = document.getElementById('error-message');
+            const errorTitle = errorMessage.querySelector('.text-red-400');
+            const errorSubtitle = errorMessage.querySelector('.text-gray-400');
             const productImage = document.getElementById('product-image');
             const productTitle = document.getElementById('product-title');
             const productPrice = document.getElementById('product-price');
@@ -131,7 +133,6 @@
             const showProductResult = (barcode) => {
                 console.log(`Código de barras detectado: ${barcode}`);
                 
-                // 1. Cambiar a la vista de resultado y mostrar el loader
                 scannerView.classList.add('hidden');
                 resultView.classList.remove('hidden');
 
@@ -139,22 +140,29 @@
                 productContent.classList.add('hidden');
                 errorMessage.classList.add('hidden');
 
-                // 2. Llamar al backend para obtener la info del producto
                 fetch(`/api/scrape?codigo=${barcode}`)
                     .then(response => {
                         if (!response.ok) {
-                            throw new Error(`Error en la respuesta del servidor: ${response.statusText}`);
+                            // Intenta obtener un mensaje de error específico del cuerpo de la respuesta del backend
+                            return response.json().then(errorData => {
+                                throw new Error(errorData.error || `Error: ${response.statusText}`);
+                            }).catch(() => {
+                                // Si el cuerpo no es JSON o está vacío, usa el texto de estado de la respuesta
+                                throw new Error(`Error en la respuesta del servidor: ${response.statusText}`);
+                            });
                         }
                         return response.json();
                     })
                     .then(data => {
                         loader.classList.add('hidden');
                         if (data.error) {
+                            // Maneja errores lógicos devueltos por el backend (ej. "Producto no encontrado")
                             console.error('Error del scraper:', data.error);
-                            errorMessage.querySelector('p').textContent = data.error;
+                            errorTitle.textContent = data.error;
+                            errorSubtitle.textContent = 'Intenta con otro código de barras.';
                             errorMessage.classList.remove('hidden');
                         } else {
-                            // 3. Poblar datos y mostrar el contenido
+                            // Muestra los datos del producto si la solicitud fue exitosa
                             productImage.src = data.imagenUrl;
                             productTitle.textContent = data.titulo;
                             productPrice.textContent = data.precio;
@@ -162,9 +170,11 @@
                         }
                     })
                     .catch(err => {
-                        console.error('Fetch error:', err);
+                        // Captura errores de red o los errores lanzados desde el bloque !response.ok
+                        console.error('Error procesando la solicitud:', err);
                         loader.classList.add('hidden');
-                        errorMessage.querySelector('p').textContent = 'Error de conexión.';
+                        errorTitle.textContent = err.message;
+                        errorSubtitle.textContent = 'Por favor, verifica tu conexión o inténtalo de nuevo.';
                         errorMessage.classList.remove('hidden');
                     });
             };
@@ -200,9 +210,10 @@
                             })
                             .catch(err => {
                                 if (isScanning) {
-                                    stopScanner();
-                                    console.error('Error de decodificación:', err);
-                                    statusMessage.textContent = 'No se pudo leer el código. Intente de nuevo.';
+                                    // No es un error grave, solo que no se pudo decodificar. No detener el scanner.
+                                    if (!(err instanceof ZXing.NotFoundException)) {
+                                       console.error('Error de decodificación:', err);
+                                    }
                                 }
                             });
                     };
