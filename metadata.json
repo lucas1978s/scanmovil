@@ -1,0 +1,7 @@
+{
+  "name": "Escáner de Precios Móvil",
+  "description": "Una aplicación web para escanear códigos de barras de productos usando la cámara del móvil y buscar su precio en línea.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
