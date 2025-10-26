@@ -1,1 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Escáner de Precios</title>
+    <!-- Tailwind CSS para un diseño rápido y moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ZXing Library para el escaneo de códigos de barras -->
+    <script src="https://unpkg.com/@zxing/library@0.21.0"></script>
+    <style>
+        /* Estilos para la animación de la línea de escaneo */
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: red;
+            box-shadow: 0 0 10px red;
+            animation: scan 2s infinite linear;
+        }
+        @keyframes scan {
+            0% { top: 0; }
+            50% { top: 100%; }
+            100% { top: 0; }
+        }
+    </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-gray-900 overflow-hidden">
 
+    <div id="app" class="min-h-screen h-screen bg-gray-900 text-white flex flex-col items-center justify-center font-sans relative">
+        
+        <!-- Vista del Escáner (visible por defecto) -->
+        <div id="scanner-view" class="w-full h-full flex flex-col items-center justify-center">
+            <header class="absolute top-0 left-0 right-0 p-4 bg-gray-900 bg-opacity-70 z-20">
+                <h1 class="text-2xl font-bold text-center text-white">Escáner de Precios</h1>
+            </header>
+            
+            <main class="w-full h-full flex items-center justify-center p-4">
+                <div class="w-full max-w-md aspect-square rounded-2xl overflow-hidden shadow-2xl border-4 border-blue-500 bg-gray-800 relative">
+                    <video id="video" class="w-full h-full object-cover" playsinline></video>
+                    <div class="absolute inset-0 pointer-events-none">
+                        <!-- Guía visual para el usuario -->
+                        <div class="scan-line"></div>
+                        <div class="w-full h-full flex items-center justify-center">
+                            <div class="w-11/12 h-1/2 border-l-4 border-r-4 border-white opacity-25 rounded-lg"></div>
+                        </div>
+                    </div>
+                    <div id="status-message" class="absolute bottom-0 left-0 right-0 p-4 bg-black bg-opacity-50 text-center">
+                        <p class="text-white font-semibold">Apunta al código de barras</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Vista de Resultado (oculta por defecto) -->
+        <div id="result-view" class="w-full h-full flex flex-col items-center justify-center p-4 hidden">
+             <!-- Estado de carga -->
+            <div id="loader" class="text-center">
+                <svg class="animate-spin h-10 w-10 text-white mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-lg font-semibold">Buscando producto...</p>
+            </div>
+
+            <!-- Contenido del producto (oculto por defecto) -->
+            <div id="product-content" class="hidden w-full h-full flex flex-col items-center justify-center text-center gap-4">
+                 <div class="flex-grow flex items-center justify-center">
+                    <img id="product-image" src="" alt="Imagen del producto" class="max-w-full max-h-64 h-auto object-contain rounded-lg shadow-lg" />
+                 </div>
+                 <div class="flex-shrink-0 w-full pb-24"> <!-- Padding bottom para no solapar con el botón -->
+                    <h2 id="product-title" class="text-2xl font-bold"></h2>
+                    <p id="product-price" class="text-5xl font-light text-blue-400 mt-2"></p>
+                 </div>
+            </div>
+            
+            <!-- Estado de error/no encontrado (oculto por defecto) -->
+            <div id="error-message" class="hidden text-center">
+                 <p class="text-2xl text-red-400 font-bold">Producto no encontrado</p>
+                 <p class="text-gray-400 mt-2">El código escaneado no arrojó resultados.</p>
+            </div>
+        </div>
+
+
+        <!-- Botón flotante para escanear de nuevo -->
+        <footer class="absolute bottom-0 left-0 right-0 p-4 z-20 flex justify-center">
+            <button id="scan-again-button" class="px-8 py-4 bg-blue-600 text-white font-bold rounded-full shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75 transform transition-transform active:scale-95 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+                Escanear Otro
+            </button>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoEl = document.getElementById('video');
+            const scannerView = document.getElementById('scanner-view');
+            const resultView = document.getElementById('result-view');
+            const scanAgainButton = document.getElementById('scan-again-button');
+            const statusMessage = document.querySelector('#status-message p');
+            
+            // Elementos de la vista de resultado
+            const loader = document.getElementById('loader');
+            const productContent = document.getElementById('product-content');
+            const errorMessage = document.getElementById('error-message');
+            const productImage = document.getElementById('product-image');
+            const productTitle = document.getElementById('product-title');
+            const productPrice = document.getElementById('product-price');
+
+
+            const hints = new Map();
+            const formats = [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E, ZXing.BarcodeFormat.CODE_128];
+            hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+            const codeReader = new ZXing.BrowserMultiFormatReader(hints);
+
+            let activeStream = null;
+            let isScanning = false;
+
+            const stopScanner = () => {
+                isScanning = false;
+                if (activeStream) {
+                    activeStream.getTracks().forEach(track => track.stop());
+                    activeStream = null;
+                }
+                codeReader.reset();
+            };
+
+            const showProductResult = (barcode) => {
+                console.log(`Código de barras detectado: ${barcode}`);
+                
+                // 1. Cambiar a la vista de resultado y mostrar el loader
+                scannerView.classList.add('hidden');
+                resultView.classList.remove('hidden');
+
+                loader.classList.remove('hidden');
+                productContent.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+
+                // 2. Llamar al backend para obtener la info del producto
+                fetch(`/api/scrape?codigo=${barcode}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Error en la respuesta del servidor: ${response.statusText}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        loader.classList.add('hidden');
+                        if (data.error) {
+                            console.error('Error del scraper:', data.error);
+                            errorMessage.querySelector('p').textContent = data.error;
+                            errorMessage.classList.remove('hidden');
+                        } else {
+                            // 3. Poblar datos y mostrar el contenido
+                            productImage.src = data.imagenUrl;
+                            productTitle.textContent = data.titulo;
+                            productPrice.textContent = data.precio;
+                            productContent.classList.remove('hidden');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Fetch error:', err);
+                        loader.classList.add('hidden');
+                        errorMessage.querySelector('p').textContent = 'Error de conexión.';
+                        errorMessage.classList.remove('hidden');
+                    });
+            };
+
+            const startScanner = async () => {
+                stopScanner();
+                isScanning = true;
+
+                scannerView.classList.remove('hidden');
+                resultView.classList.add('hidden');
+                statusMessage.textContent = 'Iniciando cámara...';
+
+                try {
+                    const constraints = { video: { facingMode: 'environment' } };
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    if (!isScanning) {
+                        stream.getTracks().forEach(track => track.stop());
+                        return;
+                    }
+                    activeStream = stream;
+                    videoEl.srcObject = stream;
+                    
+                    videoEl.onloadedmetadata = () => {
+                        videoEl.play();
+                        statusMessage.textContent = 'Apunta al código de barras';
+
+                        codeReader.decodeFromVideoElement(videoEl)
+                            .then(result => {
+                                if (!isScanning) return;
+                                stopScanner();
+                                showProductResult(result.getText());
+                            })
+                            .catch(err => {
+                                if (isScanning) {
+                                    stopScanner();
+                                    console.error('Error de decodificación:', err);
+                                    statusMessage.textContent = 'No se pudo leer el código. Intente de nuevo.';
+                                }
+                            });
+                    };
+
+                } catch (err) {
+                    stopScanner();
+                    console.error('Error al iniciar la cámara:', err);
+                    if (err.name === 'NotAllowedError') {
+                        statusMessage.textContent = 'Error: Se necesita permiso para la cámara.';
+                    } else {
+                        statusMessage.textContent = 'Ocurrió un error al iniciar la cámara.';
+                    }
+                }
+            };
+            
+            scanAgainButton.addEventListener('click', startScanner);
+
+            startScanner();
+        });
+    </script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
